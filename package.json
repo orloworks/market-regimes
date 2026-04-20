@@ -1,0 +1,60 @@
+{
+  "name": "market-regimes",
+  "version": "0.1.0",
+  "description": "Academic-grounded market regime detection for quantitative finance",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./fetch": {
+      "import": "./dist/fetch.mjs",
+      "require": "./dist/fetch.js",
+      "types": "./dist/fetch.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "typecheck": "tsc --noEmit",
+    "prepare": "tsup src/index.ts --format cjs,esm --dts --clean"
+  },
+  "dependencies": {
+    "nanuquant": "^0.1.0"
+  },
+  "devDependencies": {
+    "tsup": "^8.0.0",
+    "typescript": "^5.4.0",
+    "vitest": "^2.0.0"
+  },
+  "keywords": [
+    "market-regimes",
+    "regime-detection",
+    "quantitative-finance",
+    "volatility",
+    "crisis-detection",
+    "mean-reversion",
+    "inflation",
+    "financial-markets"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/orloworks/market-regimes"
+  },
+  "author": "Jensen Carlsen",
+  "engines": {
+    "node": ">=18"
+  }
+}

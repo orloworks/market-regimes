@@ -1,0 +1,14 @@
+{
+  "regime": "volatile",
+  "description": "Manually defined high-volatility windows from SPY price history and VIX data. Whaley (2009) identifies two VIX>34 periods in our data range (Aug-Oct 2002, Sep-Oct 2008) but our detector uses realized vol percentile, not VIX directly. These windows are from financial news and SPY drawdown history.",
+  "dateSource": "SPY price history, VIX history via Yahoo Finance, financial news reporting.",
+  "eventWindows": [
+    { "start": "2008-09-15", "end": "2009-03-31", "label": "GFC peak volatility (Lehman → market bottom)", "severity": "severe" },
+    { "start": "2020-02-20", "end": "2020-05-15", "label": "COVID crash volatility", "severity": "severe" },
+    { "start": "2018-02-01", "end": "2018-04-30", "label": "Feb 2018 Volmageddon (XIV blowup)", "severity": "moderate" },
+    { "start": "2011-08-01", "end": "2011-11-30", "label": "US debt ceiling / EU crisis 2011", "severity": "moderate" },
+    { "start": "2015-08-20", "end": "2015-10-15", "label": "China devaluation Aug 2015", "severity": "moderate" },
+    { "start": "2018-10-10", "end": "2018-12-31", "label": "Q4 2018 selloff (SPY -20% peak-to-trough)", "severity": "moderate" }
+  ],
+  "passCriterion": "Detector fires within 10 trading days of window start. 90% coverage is a regression gate."
+}

@@ -1,0 +1,28 @@
+{
+  "regime": "qe",
+  "description": "Manually defined QE/risk-on windows from Fed policy announcements, M2 money supply growth (FRED M2SL), and SPY price history. NOT from Ilmanen (2003) or Campbell et al (2014) — Ilmanen identifies stock-bond decorrelation episodes ending 2001; Campbell et al identifies a structural regime 2001Q1-2011Q4 (entire decade, different granularity). These windows are from FOMC announcement dates, FRED M2 data, and financial news.",
+  "dateSource": "FOMC statements, FRED M2SL series, SPY/TLT price history via Yahoo Finance.",
+  "eventWindows": [
+    {
+      "start": "2009-07-20",
+      "end": "2009-11-30",
+      "label": "Post-GFC QE1 risk-on: M2 growth 6-9% YoY, SPY momentum confirmed",
+      "severity": "mild",
+      "note": "Window chosen from FRED M2SL showing 6-9% YoY growth and SPY recovering above 63-day SMA. Ends when M2 YoY decelerates below 4%."
+    },
+    {
+      "start": "2019-08-01",
+      "end": "2020-02-19",
+      "label": "2019 Fed pivot: 3 rate cuts Jul-Oct 2019, repo facility expansion",
+      "severity": "mild"
+    },
+    {
+      "start": "2020-07-01",
+      "end": "2021-06-30",
+      "label": "Post-COVID stimulus: M2 growth 14-28% YoY (FRED M2SL), unprecedented monetary expansion",
+      "severity": "moderate",
+      "note": "M2 YoY growth stayed above 10% through mid-2021. Window from FRED data, not from any paper."
+    }
+  ],
+  "passCriterion": "Detector fires within 10 trading days of window start. No coverage requirement — QE signal is episodic."
+}

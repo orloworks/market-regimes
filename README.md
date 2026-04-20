@@ -39,7 +39,7 @@ Rule-based classification of market conditions into 5 regimes, sense-checked aga
 ## Quick Start
 
 ```bash
-npm install market-regimes nanuquant
+npm install market-regimes nanuquant-ts
 ```
 
 ### Fastest path: built-in Yahoo Finance fetcher

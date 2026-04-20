@@ -31,7 +31,7 @@
     "prepare": "tsup src/index.ts --format cjs,esm --dts --clean"
   },
   "dependencies": {
-    "nanuquant": "^0.1.0"
+    "nanuquant-ts": "^1.0.0"
   },
   "devDependencies": {
     "tsup": "^8.0.0",

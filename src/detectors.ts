@@ -6,7 +6,7 @@
  * News-Driven is a deferred stub (pending FinGPT integration).
  */
 
-import { std, rollingCorrelation, rollingVolatility, comp } from "nanuquant";
+import { std, rollingCorrelation, rollingVolatility, comp } from "nanuquant-ts";
 import type { BenchmarkData, RegimeResult, RegimeType, Severity } from "./types";
 import { REGIME_TYPES } from "./types";
 import {

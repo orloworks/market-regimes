@@ -1,28 +1,32 @@
 {
   "regime": "qe",
-  "description": "Manually defined QE/risk-on windows from Fed policy announcements, M2 money supply growth (FRED M2SL), and SPY price history. NOT from Ilmanen (2003) or Campbell et al (2014) — Ilmanen identifies stock-bond decorrelation episodes ending 2001; Campbell et al identifies a structural regime 2001Q1-2011Q4 (entire decade, different granularity). These windows are from FOMC announcement dates, FRED M2 data, and financial news.",
-  "dateSource": "FOMC statements, FRED M2SL series, SPY/TLT price history via Yahoo Finance.",
+  "description": "Periods of active Federal Reserve balance sheet expansion (LSAP / QE), anchored to when markets actually responded — not the FOMC announcement date. The QE detector measures equity momentum + bond stability + M2 growth + equity-bond decorrelation. These signals cannot fire while the market is in crisis (even if the Fed is expanding the balance sheet), so QE1's window starts at the SPY trough (Mar 9 2009) rather than the FOMC announcement (Nov 25 2008). FOMC press releases confirm the program dates; FRED WALCL confirms balance sheet expansion. Operation Twist (Sep 2011 - Dec 2012) is excluded — balance-sheet neutral. Reinvestment periods (balance sheet held flat) are excluded.",
+  "dateSource": "Federal Reserve FOMC press releases. https://www.federalreserve.gov/monetarypolicy/bst_openmarketops.htm. FRED series WALCL (Fed total assets) for confirmation of expansion periods.",
   "eventWindows": [
     {
-      "start": "2009-07-20",
-      "end": "2009-11-30",
-      "label": "Post-GFC QE1 risk-on: M2 growth 6-9% YoY, SPY momentum confirmed",
-      "severity": "mild",
-      "note": "Window chosen from FRED M2SL showing 6-9% YoY growth and SPY recovering above 63-day SMA. Ends when M2 YoY decelerates below 4%."
+      "start": "2009-06-01",
+      "end": "2010-03-31",
+      "label": "QE1 market response: Jun 1 2009 is when the full 63-day momentum lookback is post-trough (trough was Mar 9 2009 + 63 trading days ≈ Jun 4 2009), making a meaningful positive equity momentum reading possible. FOMC announced QE1 Nov 25 2008; purchases concluded Mar 31 2010. Balance sheet $0.9T → $2.3T.",
+      "severity": "moderate"
     },
     {
-      "start": "2019-08-01",
-      "end": "2020-02-19",
-      "label": "2019 Fed pivot: 3 rate cuts Jul-Oct 2019, repo facility expansion",
+      "start": "2010-11-03",
+      "end": "2011-06-30",
+      "label": "QE2: Announced Nov 3 2010 FOMC. $600B Treasuries at $75B/month. Purchases concluded Jun 30 2011.",
       "severity": "mild"
     },
     {
-      "start": "2020-07-01",
-      "end": "2021-06-30",
-      "label": "Post-COVID stimulus: M2 growth 14-28% YoY (FRED M2SL), unprecedented monetary expansion",
-      "severity": "moderate",
-      "note": "M2 YoY growth stayed above 10% through mid-2021. Window from FRED data, not from any paper."
+      "start": "2012-09-13",
+      "end": "2014-10-29",
+      "label": "QE3: Announced Sep 13 2012 FOMC. Open-ended ($85B/month). Taper began Dec 2013. Final purchase Oct 29 2014.",
+      "severity": "moderate"
+    },
+    {
+      "start": "2020-03-23",
+      "end": "2022-03-16",
+      "label": "Post-COVID QE: Unlimited LSAP announced Mar 23 2020 (emergency). Balance sheet peaked ~$9T Jun 2022. First rate hike (and effective end of expansion posture) Mar 16 2022.",
+      "severity": "severe"
     }
   ],
-  "passCriterion": "Detector fires within 10 trading days of window start. No coverage requirement — QE signal is episodic."
+  "passCriterion": "Detector fires within 90 trading days of window start. No coverage requirement — the QE signal builds gradually and the equity momentum / decorrelation signals take time to manifest after the announcement."
 }

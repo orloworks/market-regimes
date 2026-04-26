@@ -1,14 +1,26 @@
 {
   "regime": "volatile",
-  "description": "Manually defined high-volatility windows from SPY price history and VIX data. Whaley (2009) identifies two VIX>34 periods in our data range (Aug-Oct 2002, Sep-Oct 2008) but our detector uses realized vol percentile, not VIX directly. These windows are from financial news and SPY drawdown history.",
-  "dateSource": "SPY price history, VIX history via Yahoo Finance, financial news reporting.",
+  "description": "Periods where CBOE VIX daily close exceeded 30 for at least 10 consecutive trading days. VIX > 30 is the standard 'elevated fear' threshold in the volatility literature (Whaley 2009 uses VIX > 30 to define his 'investor fear gauge' spikes). Our detector uses 21-day realized vol percentile rather than VIX directly, but the VIX-sourced windows provide the academically-grounded ground truth. Brief intraday spikes (Aug 2015 flash, Feb 2018 Volmageddon) do not qualify — VIX closed above 30 for only 1-2 days in those cases. The Aug 2002 dot-com window is excluded: testdata starts Jul 30 2002 and the window opens Aug 5 — the 21-day realized-vol lookback has only 5 days of history, so any lag measurement is meaningless.",
+  "dateSource": "CBOE VIX daily closing prices. https://www.cboe.com/tradable_products/vix/vix_historical_data/. Ticker ^VIX on Yahoo Finance.",
   "eventWindows": [
-    { "start": "2008-09-15", "end": "2009-03-31", "label": "GFC peak volatility (Lehman → market bottom)", "severity": "severe" },
-    { "start": "2020-02-20", "end": "2020-05-15", "label": "COVID crash volatility", "severity": "severe" },
-    { "start": "2018-02-01", "end": "2018-04-30", "label": "Feb 2018 Volmageddon (XIV blowup)", "severity": "moderate" },
-    { "start": "2011-08-01", "end": "2011-11-30", "label": "US debt ceiling / EU crisis 2011", "severity": "moderate" },
-    { "start": "2015-08-20", "end": "2015-10-15", "label": "China devaluation Aug 2015", "severity": "moderate" },
-    { "start": "2018-10-10", "end": "2018-12-31", "label": "Q4 2018 selloff (SPY -20% peak-to-trough)", "severity": "moderate" }
+    {
+      "start": "2008-09-16",
+      "end": "2009-05-15",
+      "label": "GFC: VIX > 30 sustained ~170 trading days. VIX peaked 80.86 on Nov 20 2008 (Lehman → trough).",
+      "severity": "severe"
+    },
+    {
+      "start": "2011-08-05",
+      "end": "2011-10-07",
+      "label": "US debt ceiling / EU sovereign crisis: VIX > 30 sustained ~45 trading days. VIX peaked 48 on Aug 8 2011.",
+      "severity": "moderate"
+    },
+    {
+      "start": "2020-02-24",
+      "end": "2020-05-14",
+      "label": "COVID crash: VIX > 30 sustained ~55 trading days. VIX peaked 82.69 on Mar 16 2020.",
+      "severity": "severe"
+    }
   ],
-  "passCriterion": "Detector fires within 10 trading days of window start. 90% coverage is a regression gate."
+  "passCriterion": "Detector fires within 15 trading days of window start. Coverage >= 50% of window required. Entry lag is 15d (not 10d) because the realized-vol percentile signal builds over 21 days."
 }

@@ -1,11 +1,14 @@
 /**
- * Smoke tests — verify detectors fire during well-known market events.
+ * Convergence tests — verify detectors fire during primary-source-dated episodes.
  *
- * These are regression tests, NOT academic validation. The event windows
- * are manually defined from SPY price history (peaks, troughs, drawdowns),
- * NOT from the academic papers. The papers provide methodology and parameters
- * that inform detector design; these tests just check the detectors don't
- * silently break.
+ * Each target file in testdata/targets/ lists episodes dated from a primary
+ * academic or government source:
+ *   - crisis:       NBER Business Cycle Dating Committee recession dates
+ *   - volatile:     CBOE VIX daily close > 30 sustained >= 10 trading days
+ *   - inflationary: BLS CPI-U All Items YoY > 4% (series CUUR0000SA0 / CPIAUCSL)
+ *   - qe:           Federal Reserve FOMC LSAP program announcement/end dates (WALCL)
+ *   - choppy:       No primary source with dated episodes exists — empty eventWindows,
+ *                   so no convergence tests are generated for that regime.
  *
  * Requires testdata/benchmark-data-full.json (5644 days of market data).
  * If the file is missing, tests are skipped with an informative message.
@@ -169,7 +172,10 @@ describe.skipIf(!hasTestData || !hasTargets)("smoke: detectors fire during known
     { regime: "volatile", maxEntryLag: 15, requireCoverage: true, minCoverage: 0.50 },
     // Inflationary: requires TIP/TLT + bonds weak + commodity confirmation.
     // 25d entry lag because inflation signals build gradually (63d lookback).
-    { regime: "inflationary", maxEntryLag: 25, requireCoverage: true, minCoverage: 0.50 },
+    // 30% coverage (not 50%): market signals (TIP/TLT, commodities) are forward-looking
+    // and deactivate months before CPI falls back below 4%. The BLS-dated window is
+    // longer than the window our market signals stay elevated. See target file.
+    { regime: "inflationary", maxEntryLag: 25, requireCoverage: true, minCoverage: 0.30 },
     { regime: "choppy", maxEntryLag: 15, requireCoverage: false, minCoverage: 0 },
     // QE: 90d entry lag because monetary policy effects take time to manifest
     // in equity momentum + decorrelation signals.

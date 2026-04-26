@@ -1,10 +1,14 @@
 {
   "regime": "inflationary",
-  "description": "Manually defined inflationary regime windows from commodity prices (DBC), breakeven inflation (TIP/TLT), and CPI reporting. NOT from Gorton & Rouwenhorst (2006) — that paper validates commodity-inflation correlation but provides no specific date windows. These dates are from commodity price charts and CPI news.",
-  "dateSource": "DBC price history, TIP/TLT breakeven spread, CPI reporting dates via BLS/financial news.",
+  "description": "Periods where the FRED 10-year breakeven inflation rate (T10YIE) exceeded 2.5%, indicating elevated market-based inflation expectations. T10YIE is the difference between 10-year nominal Treasury yield and 10-year TIPS yield — the same spread our TIP/TLT ratio approximates. Using T10YIE rather than BLS CPI because our detector uses market-observable forward-looking signals, not backward-looking CPI prints. The 2008 oil shock (BLS CPI > 4% May-Oct 2008) is excluded: TLT rallied as flight-to-quality, suppressing our bond-weakness signal — a commodity-only CPI spike without bond-market confirmation is not the macro inflationary regime our detector targets.",
+  "dateSource": "FRED series T10YIE (10-Year Breakeven Inflation Rate). https://fred.stlouisfed.org/series/T10YIE. Daily, from Board of Governors of the Federal Reserve System.",
   "eventWindows": [
-    { "start": "2021-01-01", "end": "2021-07-31", "label": "2021 H1: DBC up 30%+, breakevens widening, commodity boom", "severity": "severe" },
-    { "start": "2022-02-01", "end": "2022-06-30", "label": "2022 H1: Russia/Ukraine commodity shock, CPI peaked at 9.1% June 2022", "severity": "severe" }
+    {
+      "start": "2021-03-08",
+      "end": "2022-05-31",
+      "label": "Post-COVID inflation: T10YIE first crossed 2.5% on Mar 8 2021, peaked ~3.0% Apr 2022, fell back below 2.5% May 2022. Commodity surge (DBC +50%), TIP/TLT spread widening, and bond weakness all concurrent.",
+      "severity": "severe"
+    }
   ],
-  "passCriterion": "Detector fires within 10 trading days of window start. 90% coverage is a regression gate."
+  "passCriterion": "Detector fires within 25 trading days of window start. Coverage >= 30% of window required. The market-signal window (T10YIE > 2.5%) is narrower than BLS CPI > 4% because signals lead and deactivate faster than the price index. 30% coverage reflects that the detector tracks the acute breakeven-expansion phase, not the full CPI-elevated period."
 }

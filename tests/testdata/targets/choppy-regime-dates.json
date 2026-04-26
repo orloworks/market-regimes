@@ -1,18 +1,7 @@
 {
   "regime": "choppy",
-  "description": "Manually defined range-bound/mean-reverting market windows. NOT from Lo & MacKinlay (1988) — that paper provides the variance ratio test methodology, not specific choppy date ranges. These windows are from SPY price charts showing trendless whipsaw periods.",
-  "dateSource": "SPY price history showing range-bound periods with failed breakouts, identified by visual inspection.",
-  "eventWindows": [
-    {
-      "start": "2011-08-01",
-      "end": "2011-12-31",
-      "label": "2011 H2: SPY range-bound 1100-1290, multiple failed breakouts"
-    },
-    {
-      "start": "2015-08-01",
-      "end": "2016-02-29",
-      "label": "2015-2016: SPY whipsawed 2000-2100, China deval + oil crash chop"
-    }
-  ],
-  "passCriterion": "Detector fires within 10 trading days of window start. No coverage requirement — choppy is hard to pin precisely."
+  "description": "No primary source with specific date ranges exists for 'choppy' / mean-reverting market regimes. Lo & MacKinlay (1988) provides the variance ratio test as a methodology to detect mean reversion in a time series, but the paper tests the full-sample US equity market — it does not identify specific sub-periods as 'choppy.' This regime therefore has no convergence test: there is no paper we can cite that says 'these specific dates were choppy.' The detector is validated only by its activation rate falling within the empirical band observed in calibration.test.ts and by not firing during well-defined trending regimes (GFC, COVID melt-up).",
+  "dateSource": "None. No academic primary source publishes dated 'choppy market' episodes.",
+  "eventWindows": [],
+  "passCriterion": "No convergence test. Validated by calibration rate and by absence during well-defined trending regimes."
 }

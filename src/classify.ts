@@ -7,7 +7,7 @@
 
 import type { BenchmarkData, BenchmarkDataWithDates, RegimeResult, RegimeType, Severity } from "./types";
 import { REGIME_TYPES, CONFIRMATION_RULES } from "./types";
-import { detectAllRegimes } from "./detectors";
+import { detectAllRegimesRaw } from "./detectors";
 
 export function shouldTransition(
   regimeType: RegimeType,
@@ -89,7 +89,7 @@ export function classifyRegimeSeries(
       } : {}),
     };
 
-    const dayResults = detectAllRegimes(sliceData);
+    const dayResults = detectAllRegimesRaw(sliceData);
 
     // Apply confirmation logic per regime
     for (const rt of REGIME_TYPES) {

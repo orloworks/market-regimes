@@ -2,8 +2,18 @@
  * Regime detectors — pure functions, zero framework dependencies.
  *
  * Each detector takes BenchmarkData and returns RegimeResult.
- * All 5 active detectors implemented (crisis, choppy, volatile, inflationary, QE).
- * News-Driven is a deferred stub (pending FinGPT integration).
+ * All 7 detectors implemented (crisis, volatile, trendDrawdown, choppy,
+ * inflationary, QE, newsDriven stub).
+ *
+ * Severity is percentile-based: each detector's raw composite score is
+ * ranked against a trailing 504-day (2-year) history of that same score.
+ * Uniform thresholds:
+ *   - mild     ≥ 60th percentile
+ *   - moderate ≥ 75th percentile
+ *   - severe   ≥ 90th percentile
+ *
+ * This ensures severity is empirically grounded ("how unusual is today's
+ * reading vs recent history?") rather than relying on arbitrary score cutoffs.
  */
 
 import { std, rollingCorrelation, rollingVolatility, comp } from "nanuquant-ts";
@@ -18,6 +28,40 @@ import {
   averageStreakLength,
   variance,
 } from "./helpers";
+
+// ─── Percentile-based severity ─────────────────────────────────────────
+
+/** Number of trailing trading days used to build the percentile distribution */
+const PERCENTILE_HISTORY_DAYS = 504;
+
+/** Uniform severity thresholds applied to all detectors */
+const SEVERITY_PCTILE = { mild: 0.60, moderate: 0.75, severe: 0.90 } as const;
+
+function severityFromPercentile(pctile: number): Severity {
+  if (pctile >= SEVERITY_PCTILE.severe) return "severe";
+  if (pctile >= SEVERITY_PCTILE.moderate) return "moderate";
+  if (pctile >= SEVERITY_PCTILE.mild) return "mild";
+  return "off";
+}
+
+/**
+ * Truncate BenchmarkData to end at `length - daysBack`, simulating
+ * "what the data looked like daysBack trading days ago."
+ */
+function truncateData(data: BenchmarkData, daysBack: number): BenchmarkData {
+  if (daysBack <= 0) return data;
+  const s = <T>(arr: T[]): T[] => arr.slice(0, -daysBack);
+  return {
+    spy: { prices: s(data.spy.prices), opens: s(data.spy.opens), returns: s(data.spy.returns) },
+    qqq: { prices: s(data.qqq.prices), opens: s(data.qqq.opens), returns: s(data.qqq.returns) },
+    tlt: { prices: s(data.tlt.prices), opens: s(data.tlt.opens), returns: s(data.tlt.returns) },
+    vt: { prices: s(data.vt.prices), returns: s(data.vt.returns) },
+    tip: { prices: s(data.tip.prices), returns: s(data.tip.returns) },
+    gld: { prices: s(data.gld.prices), returns: s(data.gld.returns) },
+    dbc: { prices: s(data.dbc.prices), returns: s(data.dbc.returns) },
+    ...(data.m2 ? { m2: data.m2 } : {}), // M2 is monthly; don't truncate daily
+  };
+}
 
 // ─── Detector: Crisis ───────────────────────────────────────────────────
 
@@ -102,19 +146,15 @@ export function detectCrisis(data: BenchmarkData): RegimeResult {
     return OFF;
   }
 
-  // Override: immediate severe at -15% drawdown + positive corr (Pagan & Sossounov early-warning)
+  // Raw score returned; severity assigned by percentile in detectAllRegimes.
+  // Keep special override flag in signals for classifyRegimeSeries crisis fast-path.
   if (spyDrawdown < -0.15 && spyTltCorr21 > 0.30) {
-    return { active: true, severity: "severe", score: crisisScore, signals };
+    signals._crisisOverride = 1;
   }
 
-  let severity: Severity = "off";
-  if (crisisScore >= 0.75) severity = "severe";
-  else if (crisisScore >= 0.50) severity = "moderate";
-  else if (crisisScore >= 0.25) severity = "mild";
-
   return {
-    active: severity !== "off",
-    severity,
+    active: crisisScore > 0,
+    severity: "off", // placeholder — percentile assigns real severity
     score: crisisScore,
     signals,
   };
@@ -145,15 +185,11 @@ export function detectVolatile(data: BenchmarkData): RegimeResult {
 
   if (isNaN(vol21) || isNaN(volPercentile)) return OFF;
 
-  // Severity thresholds (Whaley 2009, Giot 2005)
-  let severity: Severity = "off";
-  if (volPercentile >= 0.90) severity = "severe";
-  else if (volPercentile >= 0.75) severity = "moderate";
-  else if (volPercentile >= 0.60) severity = "mild";
-
+  // Volatile is already percentile-based by nature (Whaley 2009, Giot 2005).
+  // Raw score = volPercentile. Severity assigned by detectAllRegimes.
   return {
-    active: severity !== "off",
-    severity,
+    active: volPercentile > 0,
+    severity: "off",
     score: volPercentile,
     signals,
   };
@@ -168,8 +204,6 @@ export function detectTrendDrawdown(data: BenchmarkData): RegimeResult {
   if (spyPrices.length < 200) return OFF;
 
   // 1. Death cross: 50-day SMA below 200-day SMA (Brock, Lakonishok & LeBaron 1992)
-  //    The BLL study showed that moving average crossover signals have significant
-  //    predictive power for equity returns. 50/200 is the canonical "golden/death cross."
   const sma50 = SMA(spyPrices, 50);
   const sma200 = SMA(spyPrices, 200);
   const lastSma50 = sma50[sma50.length - 1]!;
@@ -178,12 +212,9 @@ export function detectTrendDrawdown(data: BenchmarkData): RegimeResult {
   if (isNaN(lastSma50) || isNaN(lastSma200) || lastSma200 === 0) return OFF;
 
   const maCrossover = lastSma50 / lastSma200;
-  // Score: how far below the 200 SMA the 50 SMA is (0 = at parity, 1 = 5%+ below)
   const crossScore = clamp((1 - maCrossover) / 0.05, 0, 1);
 
   // 2. Drawdown from trailing 252-day high (Pagan & Sossounov 2003)
-  //    P&S formalized bear market detection via peak-to-trough drawdown thresholds.
-  //    -5% = correction, -10% = intermediate, -20% = bear market.
   const lookback = Math.min(spyPrices.length, 252);
   const recentPrices = spyPrices.slice(-lookback);
   const peak252 = Math.max(...recentPrices);
@@ -197,16 +228,11 @@ export function detectTrendDrawdown(data: BenchmarkData): RegimeResult {
     if (recentPrices[i]! >= peak252) peakIndex = i;
   }
   const drawdownDuration = recentPrices.length - 1 - peakIndex;
-  const durationScore = clamp(drawdownDuration / 63, 0, 1); // 63 trading days (~3 months) = max
+  const durationScore = clamp(drawdownDuration / 63, 0, 1);
 
   // 4. Price below both SMAs: trend confirmation (Faber 2007)
-  //    Faber's tactical asset allocation paper showed that assets below their
-  //    10-month SMA (≈200-day) underperform significantly. Price below both
-  //    50 and 200 SMA confirms bearish trend structure.
   const belowBoth = current < lastSma50 && current < lastSma200 ? 1 : 0;
 
-  // Composite: death cross is necessary condition, drawdown provides severity
-  // Must have MA crossover (50 < 200) AND drawdown > 5% to activate
   const trendScore = crossScore * 0.30 + ddScore * 0.35 + durationScore * 0.15 + belowBoth * 0.20;
 
   const signals: Record<string, number> = {
@@ -222,19 +248,13 @@ export function detectTrendDrawdown(data: BenchmarkData): RegimeResult {
 
   if (Object.values(signals).some((v) => isNaN(v))) return OFF;
 
-  // Require death cross (50 < 200) AND minimum 5% drawdown to activate
-  if (maCrossover >= 1 || drawdownDepth < 0.05) {
-    return { active: false, severity: "off", score: trendScore, signals };
-  }
-
-  let severity: Severity = "off";
-  if (trendScore >= 0.75) severity = "severe";
-  else if (trendScore >= 0.50) severity = "moderate";
-  else if (trendScore >= 0.25) severity = "mild";
+  // Activation gate: death cross AND minimum 5% drawdown required
+  const gateActive = maCrossover < 1 && drawdownDepth >= 0.05;
+  signals._gateActive = gateActive ? 1 : 0;
 
   return {
-    active: severity !== "off",
-    severity,
+    active: gateActive,
+    severity: "off",
     score: trendScore,
     signals,
   };
@@ -307,14 +327,9 @@ export function detectChoppy(data: BenchmarkData): RegimeResult {
 
   if (Object.values(signals).some((v) => isNaN(v))) return OFF;
 
-  let severity: Severity = "off";
-  if (chopScore >= 0.75) severity = "severe";
-  else if (chopScore >= 0.55) severity = "moderate";
-  else if (chopScore >= 0.35) severity = "mild";
-
   return {
-    active: severity !== "off",
-    severity,
+    active: chopScore > 0,
+    severity: "off",
     score: chopScore,
     signals,
   };
@@ -383,14 +398,9 @@ export function detectInflationary(data: BenchmarkData): RegimeResult {
 
   if (Object.values(signals).some((v) => isNaN(v))) return OFF;
 
-  let severity: Severity = "off";
-  if (inflationScore >= 0.75) severity = "severe";
-  else if (inflationScore >= 0.55) severity = "moderate";
-  else if (inflationScore >= 0.30) severity = "mild";
-
   return {
-    active: severity !== "off",
-    severity,
+    active: inflationScore > 0,
+    severity: "off",
     score: inflationScore,
     signals,
   };
@@ -439,20 +449,17 @@ export function detectQE(data: BenchmarkData): RegimeResult {
   const meltUpScore = spyAboveSma ? clamp((0.12 - vol21) / 0.07, 0, 1) : 0;
 
   // 5. M2 money supply growth: direct measure of monetary expansion (FRED M2SL)
-  //    Normalized so 15%+ YoY growth = max score. Stays elevated during QE even when bonds sell off.
   const m2 = data.m2;
   const hasM2 = m2 && m2.yoyGrowth.length > 0;
   const m2YoY = hasM2 ? m2.yoyGrowth[m2.yoyGrowth.length - 1]! : NaN;
   const m2GrowthScore = hasM2 && !isNaN(m2YoY) ? clamp(m2YoY / 0.15, 0, 1) : NaN;
 
-  // Composite: with M2 data, bondStrength is demoted (M2 directly measures policy stance)
+  // Composite
   let qeScore: number;
   if (!isNaN(m2GrowthScore)) {
-    // Full model: M2 replaces bond prices as primary policy signal
     qeScore =
       equityMomentum * 0.25 + bondStrength * 0.15 + decorrelation * 0.20 + meltUpScore * 0.15 + m2GrowthScore * 0.25;
   } else {
-    // Fallback: original weighting when M2 data unavailable (Ilmanen 2003)
     qeScore =
       equityMomentum * 0.30 + bondStrength * 0.25 + decorrelation * 0.25 + meltUpScore * 0.20;
   }
@@ -473,14 +480,9 @@ export function detectQE(data: BenchmarkData): RegimeResult {
 
   if (isNaN(qeScore)) return OFF;
 
-  let severity: Severity = "off";
-  if (qeScore >= 0.80) severity = "severe";
-  else if (qeScore >= 0.60) severity = "moderate";
-  else if (qeScore >= 0.40) severity = "mild";
-
   return {
-    active: severity !== "off",
-    severity,
+    active: qeScore > 0,
+    severity: "off",
     score: qeScore,
     signals,
   };
@@ -492,7 +494,7 @@ export function detectNewsDriven(_data: BenchmarkData): RegimeResult {
   return { active: false, severity: "off", score: 0, signals: {} };
 }
 
-// ─── Aggregate ──────────────────────────────────────────────────────────
+// ─── Raw aggregate (no percentile — used by classifyRegimeSeries) ──────
 
 const DETECTORS: Record<RegimeType, (data: BenchmarkData) => RegimeResult> = {
   volatile: detectVolatile,
@@ -504,12 +506,105 @@ const DETECTORS: Record<RegimeType, (data: BenchmarkData) => RegimeResult> = {
   newsDriven: detectNewsDriven,
 };
 
-export function detectAllRegimes(
+/**
+ * Run all detectors and return raw composite scores (no percentile ranking).
+ * Used by classifyRegimeSeries which applies its own per-series percentile.
+ */
+export function detectAllRegimesRaw(
   data: BenchmarkData
 ): Record<RegimeType, RegimeResult> {
   const results = {} as Record<RegimeType, RegimeResult>;
   for (const rt of REGIME_TYPES) {
     results[rt] = DETECTORS[rt](data);
   }
+  return results;
+}
+
+// ─── Percentile-wrapped aggregate (main public API) ────────────────────
+
+/**
+ * Run all 7 regime detectors with percentile-based severity.
+ *
+ * For each detector:
+ * 1. Compute raw composite score for today
+ * 2. Compute raw composite scores for each of the trailing 504 trading days
+ * 3. Percentile-rank today's score against that 2-year distribution
+ * 4. Apply uniform severity: mild ≥ 60th, moderate ≥ 75th, severe ≥ 90th
+ *
+ * The `score` field in the result is the percentile rank (0–1).
+ * The raw composite score is preserved in `signals.rawScore`.
+ *
+ * Special cases:
+ * - Trend drawdown has an activation gate (death cross + 5% drawdown).
+ *   Percentile only determines severity when the gate is active.
+ * - Crisis has an override: -15% drawdown + positive SPY-TLT correlation
+ *   immediately triggers "severe" regardless of percentile.
+ * - News-Driven is a stub (always off).
+ */
+export function detectAllRegimes(
+  data: BenchmarkData
+): Record<RegimeType, RegimeResult> {
+  // 1. Run raw detection for current day
+  const currentResults = detectAllRegimesRaw(data);
+
+  // 2. Build historical score distributions (504 trailing days)
+  const maxHistory = Math.min(PERCENTILE_HISTORY_DAYS, data.spy.prices.length - 200);
+  const historyByType: Record<RegimeType, number[]> = {} as Record<RegimeType, number[]>;
+  for (const rt of REGIME_TYPES) {
+    historyByType[rt] = [];
+  }
+
+  if (maxHistory > 10) {
+    for (let d = 1; d <= maxHistory; d++) {
+      const truncated = truncateData(data, d);
+      const dayResults = detectAllRegimesRaw(truncated);
+      for (const rt of REGIME_TYPES) {
+        historyByType[rt].push(dayResults[rt].score);
+      }
+    }
+  }
+
+  // 3. Percentile-rank and assign uniform severity
+  const results = {} as Record<RegimeType, RegimeResult>;
+
+  for (const rt of REGIME_TYPES) {
+    const raw = currentResults[rt];
+    const history = historyByType[rt];
+
+    // News-driven stub — pass through
+    if (rt === "newsDriven") {
+      results[rt] = raw;
+      continue;
+    }
+
+    // Compute percentile of current raw score vs trailing history
+    const pctile = history.length > 10
+      ? percentileRank(raw.score, history)
+      : raw.score; // fallback if insufficient history
+
+    // Determine severity from percentile
+    let severity = severityFromPercentile(pctile);
+    let active = severity !== "off";
+
+    // Trend drawdown: respect activation gate (death cross + drawdown)
+    if (rt === "trendDrawdown" && raw.signals._gateActive !== 1) {
+      active = false;
+      severity = "off";
+    }
+
+    // Crisis override: immediate severe on extreme drawdown + correlation spike
+    if (rt === "crisis" && raw.signals._crisisOverride === 1) {
+      active = true;
+      severity = "severe";
+    }
+
+    results[rt] = {
+      active,
+      severity,
+      score: pctile,
+      signals: { ...raw.signals, rawScore: raw.score, percentile: pctile },
+    };
+  }
+
   return results;
 }

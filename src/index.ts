@@ -12,6 +12,7 @@ export {
   detectQE,
   detectNewsDriven,
   detectAllRegimes,
+  detectAllRegimesRaw,
 } from "./detectors";
 
 // Classification

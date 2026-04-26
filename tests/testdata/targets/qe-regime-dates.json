@@ -5,8 +5,8 @@
   "eventWindows": [
     {
       "start": "2009-06-01",
-      "end": "2010-03-31",
-      "label": "QE1 market response: Jun 1 2009 is when the full 63-day momentum lookback is post-trough (trough was Mar 9 2009 + 63 trading days ≈ Jun 4 2009), making a meaningful positive equity momentum reading possible. FOMC announced QE1 Nov 25 2008; purchases concluded Mar 31 2010. Balance sheet $0.9T → $2.3T.",
+      "end": "2010-08-31",
+      "label": "QE1 market response: Jun 1 2009 is when the full 63-day momentum lookback is post-trough (trough was Mar 9 2009 + 63 trading days ≈ Jun 4 2009). FOMC announced QE1 Nov 25 2008; MBS + agency purchases ran Dec 2008 → Aug 2010 ($1.25T MBS + $175B agency). Treasury tranche ended Oct 2009. Final QE1 purchases concluded Aug 2010. Verified from Fed open market operations page.",
       "severity": "moderate"
     },
     {

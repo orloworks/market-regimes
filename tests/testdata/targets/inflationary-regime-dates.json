@@ -4,9 +4,9 @@
   "dateSource": "FRED series T10YIE (10-Year Breakeven Inflation Rate). https://fred.stlouisfed.org/series/T10YIE. Daily, from Board of Governors of the Federal Reserve System.",
   "eventWindows": [
     {
-      "start": "2021-03-08",
-      "end": "2022-05-31",
-      "label": "Post-COVID inflation: T10YIE first crossed 2.5% on Mar 8 2021, peaked ~3.0% Apr 2022, fell back below 2.5% May 2022. Commodity surge (DBC +50%), TIP/TLT spread widening, and bond weakness all concurrent.",
+      "start": "2021-05-10",
+      "end": "2022-06-27",
+      "label": "Post-COVID inflation: T10YIE first crossed 2.5% on May 10 2021 (2.49% → 2.54%). Fell back below 2.5% on Jun 28 2022 (2.48%), so last day at/above 2.5% was Jun 27 2022. Data verified from FRED T10YIE CSV.",
       "severity": "severe"
     }
   ],

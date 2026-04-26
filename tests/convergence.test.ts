@@ -3,14 +3,18 @@
  *
  * Each target file in testdata/targets/ lists episodes dated from a primary
  * academic or government source:
- *   - crisis:       NBER Business Cycle Dating Committee recession dates
+ *   - crisis:       Two-tier list:
+ *                     "nber" — NBER Business Cycle Dating Committee recession dates
+ *                     "nber-silent" — significant bear markets where NBER was silent
+ *                       (2022 rate-hike bear). Relaxed pass criteria: entry-only,
+ *                       no coverage floor, observed severity logged.
  *   - volatile:     CBOE VIX daily close > 30 sustained >= 10 trading days
- *   - inflationary: BLS CPI-U All Items YoY > 4% (series CUUR0000SA0 / CPIAUCSL)
+ *   - inflationary: FRED T10YIE (10-year breakeven) > 2.5% sustained >= 65 days
  *   - qe:           Federal Reserve FOMC LSAP program announcement/end dates (WALCL)
  *   - choppy:       No primary source with dated episodes exists — empty eventWindows,
  *                   so no convergence tests are generated for that regime.
  *
- * Requires testdata/benchmark-data-full.json (5644 days of market data).
+ * Requires testdata/benchmark-data-full.json (5644+ days of market data).
  * If the file is missing, tests are skipped with an informative message.
  */
 
@@ -28,6 +32,8 @@ interface EventWindow {
   end: string;
   label: string;
   severity?: string;
+  /** "nber" (default) = strict; "nber-silent" = entry-only, no coverage */
+  tier?: "nber" | "nber-silent";
 }
 
 interface TargetFile {
@@ -191,7 +197,19 @@ describe.skipIf(!hasTestData || !hasTargets)("smoke: detectors fire during known
 
     describe(config.regime, () => {
       for (const gt of target.eventWindows) {
-        it(`${gt.label}: entry within ${config.maxEntryLag} trading days${config.requireCoverage ? ` + ${(config.minCoverage * 100).toFixed(0)}% coverage` : ""}`, () => {
+        const tier = gt.tier ?? "nber";
+        const isSilent = tier === "nber-silent";
+
+        // nber-silent: 3x entry lag, no coverage, observed severity logged
+        const effectiveMaxLag = isSilent ? config.maxEntryLag * 3 : config.maxEntryLag;
+        const effectiveRequireCoverage = config.requireCoverage && !isSilent;
+
+        const tierTag = isSilent ? " [NBER-silent — entry-only]" : "";
+        const coverageTag = effectiveRequireCoverage
+          ? ` + ${(config.minCoverage * 100).toFixed(0)}% coverage`
+          : "";
+
+        it(`${gt.label}: entry within ${effectiveMaxLag} trading days${coverageTag}${tierTag}`, () => {
           // Determine anchor date
           let anchorDate: string;
           if (config.regime === "crisis") {
@@ -204,20 +222,36 @@ describe.skipIf(!hasTestData || !hasTargets)("smoke: detectors fire during known
           const detectedWindows = buildDetectedWindows(benchmarkData.dates, regimeSeries, config.regime);
           const detectedDates = buildDetectedDateSet(detectedWindows);
 
-          // Entry check
+          // Entry check (required for both tiers)
           const entryDate = findFirstDetectionOnOrAfter(detectedWindows, anchorDate);
           expect(entryDate, `No detection found for ${gt.label}`).not.toBeNull();
           expect(entryDate! <= gt.end, `Detection after window end`).toBe(true);
 
           const lag = countTradingDays(anchorDate, entryDate!);
-          expect(lag, `Entry lag ${lag}d exceeds ${config.maxEntryLag}d`).toBeLessThanOrEqual(config.maxEntryLag);
+          expect(lag, `Entry lag ${lag}d exceeds ${effectiveMaxLag}d`).toBeLessThanOrEqual(effectiveMaxLag);
 
-          // Coverage check (if required)
-          if (config.requireCoverage) {
+          // nber-silent: log observed severity instead of asserting it
+          if (isSilent) {
+            const detectedInWindow = detectedWindows.filter(
+              (w) => w.end >= anchorDate && w.start <= gt.end,
+            );
+            const severities = [...new Set(detectedInWindow.map((w) => w.severity))].join(", ");
+            console.log(
+              `[NBER-silent] ${gt.label.split("—")[0].trim()}: ` +
+              `detected at ${entryDate} (${lag}d lag), severities observed: [${severities}]`,
+            );
+            return;
+          }
+
+          // Coverage check (nber tier only)
+          if (effectiveRequireCoverage) {
             const tradingDays = tradingDatesInRange(anchorDate, gt.end);
             const covered = tradingDays.filter((d) => detectedDates.has(d)).length;
             const coveragePct = tradingDays.length > 0 ? covered / tradingDays.length : 0;
-            expect(coveragePct, `Coverage ${(coveragePct * 100).toFixed(0)}% < ${(config.minCoverage * 100).toFixed(0)}%`).toBeGreaterThanOrEqual(config.minCoverage);
+            expect(
+              coveragePct,
+              `Coverage ${(coveragePct * 100).toFixed(0)}% < ${(config.minCoverage * 100).toFixed(0)}%`,
+            ).toBeGreaterThanOrEqual(config.minCoverage);
           }
         });
       }

@@ -1,4 +1,4 @@
-export type RegimeType = "volatile" | "choppy" | "inflationary" | "qe" | "crisis" | "newsDriven";
+export type RegimeType = "volatile" | "trendDrawdown" | "choppy" | "inflationary" | "qe" | "crisis" | "newsDriven";
 export type Severity = "off" | "mild" | "moderate" | "severe";
 
 export interface RegimeResult {
@@ -24,13 +24,14 @@ export interface BenchmarkDataWithDates extends BenchmarkData {
   dates: string[];
 }
 
-export const REGIME_TYPES: RegimeType[] = ["volatile", "choppy", "inflationary", "qe", "crisis", "newsDriven"];
+export const REGIME_TYPES: RegimeType[] = ["volatile", "trendDrawdown", "choppy", "inflationary", "qe", "crisis", "newsDriven"];
 
 /** Current detector logic version — bump when detector logic changes */
-export const REGIME_DETECTOR_VERSION = 3;
+export const REGIME_DETECTOR_VERSION = 4;
 
 export const CONFIRMATION_RULES: Record<RegimeType, { activateDays: number; deactivateDays: number }> = {
   volatile: { activateDays: 2, deactivateDays: 7 },
+  trendDrawdown: { activateDays: 3, deactivateDays: 10 },
   choppy: { activateDays: 3, deactivateDays: 5 },
   inflationary: { activateDays: 5, deactivateDays: 10 },
   qe: { activateDays: 5, deactivateDays: 10 },

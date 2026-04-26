@@ -159,6 +159,87 @@ export function detectVolatile(data: BenchmarkData): RegimeResult {
   };
 }
 
+// ─── Detector: Trend Drawdown ───────────────────────────────────────────
+
+export function detectTrendDrawdown(data: BenchmarkData): RegimeResult {
+  const OFF: RegimeResult = { active: false, severity: "off", score: 0, signals: {} };
+
+  const spyPrices = data.spy.prices;
+  if (spyPrices.length < 200) return OFF;
+
+  // 1. Death cross: 50-day SMA below 200-day SMA (Brock, Lakonishok & LeBaron 1992)
+  //    The BLL study showed that moving average crossover signals have significant
+  //    predictive power for equity returns. 50/200 is the canonical "golden/death cross."
+  const sma50 = SMA(spyPrices, 50);
+  const sma200 = SMA(spyPrices, 200);
+  const lastSma50 = sma50[sma50.length - 1]!;
+  const lastSma200 = sma200[sma200.length - 1]!;
+
+  if (isNaN(lastSma50) || isNaN(lastSma200) || lastSma200 === 0) return OFF;
+
+  const maCrossover = lastSma50 / lastSma200;
+  // Score: how far below the 200 SMA the 50 SMA is (0 = at parity, 1 = 5%+ below)
+  const crossScore = clamp((1 - maCrossover) / 0.05, 0, 1);
+
+  // 2. Drawdown from trailing 252-day high (Pagan & Sossounov 2003)
+  //    P&S formalized bear market detection via peak-to-trough drawdown thresholds.
+  //    -5% = correction, -10% = intermediate, -20% = bear market.
+  const lookback = Math.min(spyPrices.length, 252);
+  const recentPrices = spyPrices.slice(-lookback);
+  const peak252 = Math.max(...recentPrices);
+  const current = spyPrices[spyPrices.length - 1]!;
+  const drawdownDepth = peak252 > 0 ? Math.max(0, (peak252 - current) / peak252) : 0;
+  const ddScore = clamp(drawdownDepth / 0.20, 0, 1);
+
+  // 3. Drawdown duration: days since the 252-day high
+  let peakIndex = 0;
+  for (let i = 0; i < recentPrices.length; i++) {
+    if (recentPrices[i]! >= peak252) peakIndex = i;
+  }
+  const drawdownDuration = recentPrices.length - 1 - peakIndex;
+  const durationScore = clamp(drawdownDuration / 63, 0, 1); // 63 trading days (~3 months) = max
+
+  // 4. Price below both SMAs: trend confirmation (Faber 2007)
+  //    Faber's tactical asset allocation paper showed that assets below their
+  //    10-month SMA (≈200-day) underperform significantly. Price below both
+  //    50 and 200 SMA confirms bearish trend structure.
+  const belowBoth = current < lastSma50 && current < lastSma200 ? 1 : 0;
+
+  // Composite: death cross is necessary condition, drawdown provides severity
+  // Must have MA crossover (50 < 200) AND drawdown > 5% to activate
+  const trendScore = crossScore * 0.30 + ddScore * 0.35 + durationScore * 0.15 + belowBoth * 0.20;
+
+  const signals: Record<string, number> = {
+    maCrossover,
+    crossScore,
+    drawdownDepth,
+    ddScore,
+    drawdownDuration,
+    durationScore,
+    belowBoth,
+    trendScore,
+  };
+
+  if (Object.values(signals).some((v) => isNaN(v))) return OFF;
+
+  // Require death cross (50 < 200) AND minimum 5% drawdown to activate
+  if (maCrossover >= 1 || drawdownDepth < 0.05) {
+    return { active: false, severity: "off", score: trendScore, signals };
+  }
+
+  let severity: Severity = "off";
+  if (trendScore >= 0.75) severity = "severe";
+  else if (trendScore >= 0.50) severity = "moderate";
+  else if (trendScore >= 0.25) severity = "mild";
+
+  return {
+    active: severity !== "off",
+    severity,
+    score: trendScore,
+    signals,
+  };
+}
+
 // ─── Detector: Choppy ───────────────────────────────────────────────────
 
 export function detectChoppy(data: BenchmarkData): RegimeResult {
@@ -415,6 +496,7 @@ export function detectNewsDriven(_data: BenchmarkData): RegimeResult {
 
 const DETECTORS: Record<RegimeType, (data: BenchmarkData) => RegimeResult> = {
   volatile: detectVolatile,
+  trendDrawdown: detectTrendDrawdown,
   choppy: detectChoppy,
   inflationary: detectInflationary,
   qe: detectQE,

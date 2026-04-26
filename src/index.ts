@@ -6,6 +6,7 @@ export { REGIME_TYPES, CONFIRMATION_RULES, REGIME_DETECTOR_VERSION } from "./typ
 export {
   detectCrisis,
   detectVolatile,
+  detectTrendDrawdown,
   detectChoppy,
   detectInflationary,
   detectQE,

@@ -187,6 +187,7 @@ describe.skipIf(!hasTestData || !hasTargets)("smoke: detectors fire during known
     if (!fs.existsSync(targetPath)) continue;
 
     const target: TargetFile = JSON.parse(fs.readFileSync(targetPath, "utf-8"));
+    if (target.eventWindows.length === 0) continue; // no episodes to test (e.g. choppy)
 
     describe(config.regime, () => {
       for (const gt of target.eventWindows) {

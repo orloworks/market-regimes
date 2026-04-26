@@ -169,12 +169,20 @@ export function detectCrisis(data: BenchmarkData): RegimeResult {
   signals.velocity5d = velocity5d;
 
   // Activation gate: crisis = acute panic requiring deep drawdown AND
-  // concentrated selling pressure (3+ extreme days in 21d). A sustained
-  // -20% bear market is trendDrawdown — crisis is the acute selloff episodes.
-  // Velocity path allows early detection before full -15% threshold is reached.
+  // concentrated selling pressure. A sustained -20% bear market is trendDrawdown
+  // — crisis is the acute selloff episodes.
+  //
+  // Two paths:
+  //   1. Deep drawdown: -15%+ from peak + 3+ extreme days in 21d (preserves GFC sensitivity)
+  //   2. Velocity: -5% in 5 days + -8%+ drawdown + 4+ extreme days (avoids false positives
+  //      during normal 5% pullbacks in volatile markets like 2024–2025 tariff period)
   const hasDrawdown = spyDrawdown < -0.15;
+  const hasModerateDrawdown = spyDrawdown < -0.08;
   const hasConcentratedSelling = tailScore >= 0.75; // 3+ extreme days in 21d
-  const gateActive = (hasDrawdown && hasConcentratedSelling) || (hasVelocity && hasConcentratedSelling);
+  const hasIntenseConcentratedSelling = tailScore >= 1.0; // 4+ extreme days in 21d
+  const gateActive =
+    (hasDrawdown && hasConcentratedSelling) ||
+    (hasVelocity && hasIntenseConcentratedSelling && hasModerateDrawdown);
   signals._gateActive = gateActive ? 1 : 0;
 
   return {

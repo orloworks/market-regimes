@@ -152,13 +152,29 @@ export function detectCrisis(data: BenchmarkData): RegimeResult {
   if (spyDrawdown < -0.15 && spyTltCorr21 > 0.30) {
     signals._crisisOverride = 1;
   }
+  // Bug 10: very deep drawdown (>30% from peak) is always severe crisis
+  if (spyDrawdown < -0.30) {
+    signals._crisisOverride = 1;
+  }
+
+  // Bug 5: fast velocity path — catches early COVID-style crashes where drawdown
+  // hasn't yet hit -15% but selling intensity is extreme (>5% drop in 5 days).
+  const recentPrices5d = spyPrices.slice(-6);
+  const velocity5d =
+    recentPrices5d.length >= 6
+      ? (recentPrices5d[recentPrices5d.length - 1]! - recentPrices5d[0]!) /
+        recentPrices5d[0]!
+      : 0;
+  const hasVelocity = velocity5d < -0.05;
+  signals.velocity5d = velocity5d;
 
   // Activation gate: crisis = acute panic requiring deep drawdown AND
   // concentrated selling pressure (3+ extreme days in 21d). A sustained
   // -20% bear market is trendDrawdown — crisis is the acute selloff episodes.
+  // Velocity path allows early detection before full -15% threshold is reached.
   const hasDrawdown = spyDrawdown < -0.15;
   const hasConcentratedSelling = tailScore >= 0.75; // 3+ extreme days in 21d
-  const gateActive = hasDrawdown && hasConcentratedSelling;
+  const gateActive = (hasDrawdown && hasConcentratedSelling) || (hasVelocity && hasConcentratedSelling);
   signals._gateActive = gateActive ? 1 : 0;
 
   return {
@@ -329,6 +345,14 @@ export function detectChoppy(data: BenchmarkData): RegimeResult {
   const avgStreak = averageStreakLength(recent63Returns);
   const streakScore = 1 - Math.min((avgStreak - 1) / 3, 1);
 
+  // Bug 3: current realized vol — suppress gate if market is genuinely volatile
+  // (>30% annualized). Choppy ≠ volatile; choppy is directionless low-amplitude noise.
+  const spyVol21 = std(spyReturns.slice(-21), 1) * Math.sqrt(252);
+
+  // Bug 8: net 63-day return — suppress gate during directional markets. A market
+  // that moved >8% in one direction over 3 months is trending, not choppy.
+  const netReturn63 = comp(recent63Returns);
+
   // Composite — Lo & MacKinlay primary, Elder secondary
   const chopScore =
     smaFlatness * 0.15 + crossScore * 0.15 + meanRevScore * 0.35 + streakScore * 0.35;
@@ -341,15 +365,19 @@ export function detectChoppy(data: BenchmarkData): RegimeResult {
     meanRevScore,
     avgStreak,
     streakScore,
+    spyVol21,
+    netReturn63,
     chopScore,
   };
 
   if (Object.values(signals).some((v) => isNaN(v))) return OFF;
 
   // Activation gate: require mean-reversion signal (variance ratio below 1)
-  // AND price-SMA oscillation. Normal trending markets have vrMin ~0.85-1.0
-  // and smooth price paths with few crossovers.
-  const gateActive = vrMin < 0.85 && crossCount >= 2;
+  // AND price-SMA oscillation, EXCLUDING genuine volatile markets (vol >30%)
+  // and directional markets (>8% net move in 63 days).
+  const isVolatile = spyVol21 >= 0.30;
+  const isDirectional = Math.abs(netReturn63) > 0.08;
+  const gateActive = vrMin < 0.85 && crossCount >= 2 && !isVolatile && !isDirectional;
   signals._gateActive = gateActive ? 1 : 0;
 
   return {
@@ -388,10 +416,12 @@ export function detectInflationary(data: BenchmarkData): RegimeResult {
   const tipTltScore = clamp(tipTltRatio63 / 0.05, 0, 1);
 
   // 2. Commodity momentum (Gorton & Rouwenhorst 2006)
+  // Bug 9: guard against zeros in DBC data pre-2006 (ETF launched Feb 2006).
+  // If any of the last 64 DBC prices are zero or NaN, skip DBC signal.
   const dbcReturns = dailyReturns(dbcPrices);
-  const dbcRecent63 = dbcReturns.slice(-63);
-  const dbcReturn63 = comp(dbcRecent63);
-  const dbcScore = clamp(dbcReturn63 / 0.10, 0, 1);
+  const dbcHasValidData = dbcPrices.slice(-64).every((p) => p > 0 && !isNaN(p));
+  const dbcReturn63 = dbcHasValidData ? comp(dbcReturns.slice(-63)) : NaN;
+  const dbcScore = dbcHasValidData && !isNaN(dbcReturn63) ? clamp(dbcReturn63 / 0.10, 0, 1) : 0;
 
   // 3. Gold momentum
   const gldReturns = dailyReturns(gldPrices);
@@ -412,7 +442,7 @@ export function detectInflationary(data: BenchmarkData): RegimeResult {
   const signals: Record<string, number> = {
     tipTltRatio63,
     tipTltScore,
-    dbcReturn63,
+    dbcReturn63: isNaN(dbcReturn63) ? 0 : dbcReturn63,
     dbcScore,
     gldReturn63,
     gldScore,
@@ -423,13 +453,23 @@ export function detectInflationary(data: BenchmarkData): RegimeResult {
 
   if (Object.values(signals).some((v) => isNaN(v))) return OFF;
 
-  // Activation gate: breakeven inflation must be clearly rising AND nominal
-  // bonds weakening AND at least one commodity signal.
-  // Inflation is a macro regime — all three legs should confirm.
+  // Activation gate: breakeven inflation (TIP/TLT) must be clearly rising —
+  // this is required. At least ONE of {bonds weakening, commodity confirmation}
+  // must also be present. Requiring all three was too strict and missed 2021 H2.
+  //
+  // Bug 6: commodity confirmation requires BOTH DBC AND GLD (changed from OR).
+  //   In 2009, oil recovery pushed DBC without GLD — that was commodity rebound,
+  //   not inflation. Requiring both prevents single-commodity false positives.
+  //
+  // Bug 1: changed to 2-of-3 gate (breakevens always required, plus at least
+  //   one of bondsWeak or realAssetConfirmation) to catch 2021 H2 where bonds
+  //   were weakening gradually (tltReturn63 < -0.01) but not sharply (-0.02).
   const breakevensRising = tipTltRatio63 > 0.02;
   const bondsWeak = tltReturn63 < -0.02;
-  const realAssetConfirmation = dbcReturn63 > 0.03 || gldReturn63 > 0.04;
-  const gateActive = breakevensRising && bondsWeak && realAssetConfirmation;
+  const dbcStrong = dbcHasValidData && !isNaN(dbcReturn63) && dbcReturn63 > 0.03;
+  const gldStrong = gldReturn63 > 0.04;
+  const realAssetConfirmation = dbcStrong && gldStrong; // Bug 6: AND not OR
+  const gateActive = breakevensRising && (bondsWeak || realAssetConfirmation);
   signals._gateActive = gateActive ? 1 : 0;
 
   return {
@@ -514,12 +554,19 @@ export function detectQE(data: BenchmarkData): RegimeResult {
 
   if (isNaN(qeScore)) return OFF;
 
-  // Activation gate: equity momentum must be strong AND price above trend
+  // Activation gate: equity momentum must be present AND price above trend
   // AND either low vol (melt-up) or negative equity-bond correlation.
   // QE/risk-on means genuinely easy financial conditions.
-  const hasStrongMomentum = spyReturn63 > 0.05;
+  //
+  // Bug 2: lowered momentum threshold from 5% to 3% — early QE periods (2009
+  // Q4, 2010 H1) had equities recovering but hadn't yet clocked 5% in 63 days.
+  // Also added M2 expansion path: if M2 is growing >5% YoY (direct monetary
+  // stimulus), that alone satisfies the momentum requirement even without 3% equity
+  // return — captures QE1/QE2 windows where prices lagged the money supply signal.
+  const hasStrongMomentum = spyReturn63 > 0.03; // was 0.05
+  const hasM2Expansion = Boolean(hasM2) && !isNaN(m2YoY) && m2YoY > 0.05;
   const hasEasyConditions = meltUpScore > 0.15 || decorrelation > 0.30;
-  const gateActive = hasStrongMomentum && spyAboveSma && hasEasyConditions;
+  const gateActive = (hasStrongMomentum || hasM2Expansion) && spyAboveSma && hasEasyConditions;
   signals._gateActive = gateActive ? 1 : 0;
 
   return {
@@ -559,9 +606,13 @@ export function detectNewsDriven(data: BenchmarkData): RegimeResult {
   if (spyPrices.length < 42 || spyOpens.length < 42) return OFF;
   if (spyReturns.length < 42) return OFF;
 
-  // 1. Large gap frequency: overnight gaps > 1.5% in last 21 days.
-  // Median daily gap is ~0.9%, so 1.5% captures genuinely large moves.
-  const LARGE_GAP = 0.015;
+  // 1. Large gap frequency: overnight gaps in last 21 days.
+  // Bug 4: use vol-normalized threshold so "large" is relative to the current
+  // volatility regime. In calm markets (daily vol ~0.7%), 1.5% is genuinely large.
+  // In stressed markets (daily vol ~2%), 1.5% is unremarkable noise — scale up.
+  // Minimum stays at 1.5% to avoid triggering on normal low-vol gaps.
+  const dailyVol = spyReturns.length >= 21 ? std(spyReturns.slice(-21), 1) : 0.007;
+  const LARGE_GAP = Math.max(0.015, dailyVol * 1.5);
   const lookback = 21;
   const start = spyPrices.length - lookback;
   let spyLargeGaps = 0;

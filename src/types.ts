@@ -27,7 +27,7 @@ export interface BenchmarkDataWithDates extends BenchmarkData {
 export const REGIME_TYPES: RegimeType[] = ["volatile", "trendDrawdown", "choppy", "inflationary", "qe", "crisis", "newsDriven"];
 
 /** Current detector logic version — bump when detector logic changes */
-export const REGIME_DETECTOR_VERSION = 6;
+export const REGIME_DETECTOR_VERSION = 7;
 
 export const CONFIRMATION_RULES: Record<RegimeType, { activateDays: number; deactivateDays: number }> = {
   volatile: { activateDays: 2, deactivateDays: 7 },
@@ -35,6 +35,6 @@ export const CONFIRMATION_RULES: Record<RegimeType, { activateDays: number; deac
   choppy: { activateDays: 3, deactivateDays: 5 },
   inflationary: { activateDays: 5, deactivateDays: 10 },
   qe: { activateDays: 7, deactivateDays: 10 },
-  crisis: { activateDays: 1, deactivateDays: 3 },
+  crisis: { activateDays: 1, deactivateDays: 10 },
   newsDriven: { activateDays: 3, deactivateDays: 5 },
 };

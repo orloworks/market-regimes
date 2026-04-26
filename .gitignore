@@ -1,5 +1,4 @@
 node_modules/
-dist/
 *.tsbuildinfo
 
 # Large test data — regenerate via fetchBenchmarkData()

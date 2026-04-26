@@ -138,17 +138,14 @@ export function classifyRegimeSeries(
 
       // Determine proposed severity from percentile
       let proposedSeverity = severityFromPercentile(pctile);
-      let proposedActive = proposedSeverity !== "off";
 
       // Trend drawdown: respect activation gate
       if (rt === "trendDrawdown" && raw.signals._gateActive !== 1) {
-        proposedActive = false;
         proposedSeverity = "off";
       }
 
       // Crisis override: immediate severe on extreme drawdown + correlation spike
       if (rt === "crisis" && raw.signals._crisisOverride === 1) {
-        proposedActive = true;
         proposedSeverity = "severe";
       }
 

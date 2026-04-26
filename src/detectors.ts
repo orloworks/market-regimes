@@ -27,6 +27,7 @@ import {
   percentileRank,
   averageStreakLength,
   variance,
+  excessKurtosis,
 } from "./helpers";
 
 // ─── Percentile-based severity ─────────────────────────────────────────
@@ -152,8 +153,16 @@ export function detectCrisis(data: BenchmarkData): RegimeResult {
     signals._crisisOverride = 1;
   }
 
+  // Activation gate: crisis = acute panic requiring deep drawdown AND
+  // concentrated selling pressure (3+ extreme days in 21d). A sustained
+  // -20% bear market is trendDrawdown — crisis is the acute selloff episodes.
+  const hasDrawdown = spyDrawdown < -0.15;
+  const hasConcentratedSelling = tailScore >= 0.75; // 3+ extreme days in 21d
+  const gateActive = hasDrawdown && hasConcentratedSelling;
+  signals._gateActive = gateActive ? 1 : 0;
+
   return {
-    active: crisisScore > 0,
+    active: gateActive,
     severity: "off", // placeholder — percentile assigns real severity
     score: crisisScore,
     signals,
@@ -185,10 +194,13 @@ export function detectVolatile(data: BenchmarkData): RegimeResult {
 
   if (isNaN(vol21) || isNaN(volPercentile)) return OFF;
 
-  // Volatile is already percentile-based by nature (Whaley 2009, Giot 2005).
-  // Raw score = volPercentile. Severity assigned by detectAllRegimes.
+  // Activation gate: vol must be genuinely elevated (≥20% annualized).
+  // Long-term SPY vol averages ~15%, so 20% is meaningfully above normal.
+  const gateActive = vol21 >= 0.20;
+  signals._gateActive = gateActive ? 1 : 0;
+
   return {
-    active: volPercentile > 0,
+    active: gateActive,
     severity: "off",
     score: volPercentile,
     signals,
@@ -201,18 +213,20 @@ export function detectTrendDrawdown(data: BenchmarkData): RegimeResult {
   const OFF: RegimeResult = { active: false, severity: "off", score: 0, signals: {} };
 
   const spyPrices = data.spy.prices;
-  if (spyPrices.length < 200) return OFF;
+  if (spyPrices.length < 50) return OFF;
 
   // 1. Death cross: 50-day SMA below 200-day SMA (Brock, Lakonishok & LeBaron 1992)
+  // SMA200 may not be available for early data — treat as neutral if missing.
   const sma50 = SMA(spyPrices, 50);
-  const sma200 = SMA(spyPrices, 200);
+  const sma200 = spyPrices.length >= 200 ? SMA(spyPrices, 200) : [];
   const lastSma50 = sma50[sma50.length - 1]!;
-  const lastSma200 = sma200[sma200.length - 1]!;
+  const lastSma200 = sma200.length > 0 ? sma200[sma200.length - 1]! : NaN;
 
-  if (isNaN(lastSma50) || isNaN(lastSma200) || lastSma200 === 0) return OFF;
+  if (isNaN(lastSma50)) return OFF;
 
-  const maCrossover = lastSma50 / lastSma200;
-  const crossScore = clamp((1 - maCrossover) / 0.05, 0, 1);
+  const hasSma200 = !isNaN(lastSma200) && lastSma200 > 0;
+  const maCrossover = hasSma200 ? lastSma50 / lastSma200 : 1;
+  const crossScore = hasSma200 ? clamp((1 - maCrossover) / 0.05, 0, 1) : 0;
 
   // 2. Drawdown from trailing 252-day high (Pagan & Sossounov 2003)
   const lookback = Math.min(spyPrices.length, 252);
@@ -231,9 +245,12 @@ export function detectTrendDrawdown(data: BenchmarkData): RegimeResult {
   const durationScore = clamp(drawdownDuration / 63, 0, 1);
 
   // 4. Price below both SMAs: trend confirmation (Faber 2007)
-  const belowBoth = current < lastSma50 && current < lastSma200 ? 1 : 0;
+  // If SMA200 not available, just check SMA50.
+  const belowBoth = current < lastSma50 && (!hasSma200 || current < lastSma200) ? 1 : 0;
 
-  const trendScore = crossScore * 0.30 + ddScore * 0.35 + durationScore * 0.15 + belowBoth * 0.20;
+  // Reweight: drawdown depth is primary, SMA cross is confirming (not gating).
+  // Death cross lags weeks behind fast selloffs (COVID, Liberation Day).
+  const trendScore = crossScore * 0.20 + ddScore * 0.40 + durationScore * 0.15 + belowBoth * 0.25;
 
   const signals: Record<string, number> = {
     maCrossover,
@@ -248,8 +265,10 @@ export function detectTrendDrawdown(data: BenchmarkData): RegimeResult {
 
   if (Object.values(signals).some((v) => isNaN(v))) return OFF;
 
-  // Activation gate: death cross AND minimum 5% drawdown required
-  const gateActive = maCrossover < 1 && drawdownDepth >= 0.05;
+  // Activation gate: drawdown from peak is the primary gate (≥10%).
+  // Death cross is a weight component but NOT required — it lags too much
+  // for fast crashes (COVID dropped 34% before 50 SMA crossed 200 SMA).
+  const gateActive = drawdownDepth >= 0.10;
   signals._gateActive = gateActive ? 1 : 0;
 
   return {
@@ -327,8 +346,14 @@ export function detectChoppy(data: BenchmarkData): RegimeResult {
 
   if (Object.values(signals).some((v) => isNaN(v))) return OFF;
 
+  // Activation gate: require mean-reversion signal (variance ratio below 1)
+  // AND price-SMA oscillation. Normal trending markets have vrMin ~0.85-1.0
+  // and smooth price paths with few crossovers.
+  const gateActive = vrMin < 0.85 && crossCount >= 2;
+  signals._gateActive = gateActive ? 1 : 0;
+
   return {
-    active: chopScore > 0,
+    active: gateActive,
     severity: "off",
     score: chopScore,
     signals,
@@ -398,8 +423,17 @@ export function detectInflationary(data: BenchmarkData): RegimeResult {
 
   if (Object.values(signals).some((v) => isNaN(v))) return OFF;
 
+  // Activation gate: breakeven inflation must be clearly rising AND nominal
+  // bonds weakening AND at least one commodity signal.
+  // Inflation is a macro regime — all three legs should confirm.
+  const breakevensRising = tipTltRatio63 > 0.02;
+  const bondsWeak = tltReturn63 < -0.02;
+  const realAssetConfirmation = dbcReturn63 > 0.03 || gldReturn63 > 0.04;
+  const gateActive = breakevensRising && bondsWeak && realAssetConfirmation;
+  signals._gateActive = gateActive ? 1 : 0;
+
   return {
-    active: inflationScore > 0,
+    active: gateActive,
     severity: "off",
     score: inflationScore,
     signals,
@@ -480,18 +514,133 @@ export function detectQE(data: BenchmarkData): RegimeResult {
 
   if (isNaN(qeScore)) return OFF;
 
+  // Activation gate: equity momentum must be strong AND price above trend
+  // AND either low vol (melt-up) or negative equity-bond correlation.
+  // QE/risk-on means genuinely easy financial conditions.
+  const hasStrongMomentum = spyReturn63 > 0.05;
+  const hasEasyConditions = meltUpScore > 0.15 || decorrelation > 0.30;
+  const gateActive = hasStrongMomentum && spyAboveSma && hasEasyConditions;
+  signals._gateActive = gateActive ? 1 : 0;
+
   return {
-    active: qeScore > 0,
+    active: gateActive,
     severity: "off",
     score: qeScore,
     signals,
   };
 }
 
-// ─── Detector: News-Driven (stub) ──────────────────────────────────────
+// ─── Detector: News-Driven ────��─────────────────��──────────────────────
 
-export function detectNewsDriven(_data: BenchmarkData): RegimeResult {
-  return { active: false, severity: "off", score: 0, signals: {} };
+/**
+ * Detects news-driven regimes via large gap frequency, return outliers,
+ * and excess kurtosis.
+ *
+ * News-driven markets are characterized by:
+ * 1. Frequent large overnight gaps (>1.5% — well above median ~0.9%)
+ * 2. Return outlier clustering (many days with |return| > 1.5%)
+ * 3. Fat-tailed return distribution (excess kurtosis)
+ *
+ * Note: gap threshold must be high (≥1.5%) because Yahoo Finance's
+ * adjusted close vs raw open creates baseline gaps of ~0.5-1% on most days.
+ *
+ * References: Barclay & Hendershott (2003), French & Roll (1986), Cont (2001)
+ */
+export function detectNewsDriven(data: BenchmarkData): RegimeResult {
+  const OFF: RegimeResult = { active: false, severity: "off", score: 0, signals: {} };
+
+  const spyPrices = data.spy.prices;
+  const spyOpens = data.spy.opens;
+  const spyReturns = data.spy.returns;
+  const qqqPrices = data.qqq.prices;
+  const qqqOpens = data.qqq.opens;
+  const qqqReturns = data.qqq.returns;
+
+  if (spyPrices.length < 42 || spyOpens.length < 42) return OFF;
+  if (spyReturns.length < 42) return OFF;
+
+  // 1. Large gap frequency: overnight gaps > 1.5% in last 21 days.
+  // Median daily gap is ~0.9%, so 1.5% captures genuinely large moves.
+  const LARGE_GAP = 0.015;
+  const lookback = 21;
+  const start = spyPrices.length - lookback;
+  let spyLargeGaps = 0;
+  let qqqLargeGaps = 0;
+  let maxGap = 0;
+
+  for (let i = start; i < spyPrices.length; i++) {
+    if (i < 1) continue;
+    const spyGap = Math.abs(spyOpens[i]! - spyPrices[i - 1]!) / spyPrices[i - 1]!;
+    if (!isNaN(spyGap)) {
+      if (spyGap > LARGE_GAP) spyLargeGaps++;
+      if (spyGap > maxGap) maxGap = spyGap;
+    }
+
+    if (qqqPrices.length > i && qqqOpens.length > i) {
+      const qqqGap = Math.abs(qqqOpens[i]! - qqqPrices[i - 1]!) / qqqPrices[i - 1]!;
+      if (!isNaN(qqqGap)) {
+        if (qqqGap > LARGE_GAP) qqqLargeGaps++;
+        if (qqqGap > maxGap) maxGap = qqqGap;
+      }
+    }
+  }
+
+  const avgLargeGaps = (spyLargeGaps + qqqLargeGaps) / 2;
+  // 6+ large gaps in 21 days = score of 1 (calm markets have 2-4)
+  const gapFreqScore = clamp(avgLargeGaps / 6, 0, 1);
+
+  // 2. Return outlier frequency: |daily return| > 1.5% in last 21 days
+  const recentSpyReturns = spyReturns.slice(-lookback);
+  const recentQqqReturns = qqqReturns.slice(-lookback);
+  const spyOutliers = recentSpyReturns.filter(r => Math.abs(r) > 0.015).length;
+  const qqqOutliers = recentQqqReturns.filter(r => Math.abs(r) > 0.015).length;
+  const avgOutliers = (spyOutliers + qqqOutliers) / 2;
+  // 7+ outlier days in 21 = score of 1 (calm markets have 2-3)
+  const outlierScore = clamp(avgOutliers / 7, 0, 1);
+
+  // 3. Excess kurtosis: fat tails indicate event-driven returns (Cont 2001)
+  const recent42 = spyReturns.slice(-42);
+  let kurt = 0;
+  if (recent42.length >= 20) {
+    try {
+      kurt = excessKurtosis(recent42);
+    } catch { /* fallback to 0 */ }
+  }
+  // Normal dist kurtosis = 0 (excess). News-driven markets show kurtosis > 2.
+  const kurtScore = clamp(kurt / 5, 0, 1);
+
+  // Composite
+  const newsScore = gapFreqScore * 0.35 + outlierScore * 0.40 + kurtScore * 0.25;
+
+  const signals: Record<string, number> = {
+    spyLargeGaps,
+    qqqLargeGaps,
+    avgLargeGaps,
+    gapFreqScore,
+    maxGap,
+    spyOutliers,
+    qqqOutliers,
+    avgOutliers,
+    outlierScore,
+    kurtosis: kurt,
+    kurtScore,
+    newsScore,
+  };
+
+  if (Object.values(signals).some((v) => isNaN(v))) return OFF;
+
+  // Activation gate: require BOTH elevated return outliers AND frequent large
+  // gaps. Either alone is too common; together they indicate a genuinely
+  // news-driven market where overnight information + intraday moves cluster.
+  const gateActive = avgOutliers >= 7 && avgLargeGaps >= 5;
+  signals._gateActive = gateActive ? 1 : 0;
+
+  return {
+    active: gateActive,
+    severity: "off",
+    score: newsScore,
+    signals,
+  };
 }
 
 // ─── Raw aggregate (no percentile — used by classifyRegimeSeries) ──────
@@ -571,8 +720,8 @@ export function detectAllRegimes(
     const raw = currentResults[rt];
     const history = historyByType[rt];
 
-    // News-driven stub — pass through
-    if (rt === "newsDriven") {
+    // News-driven with insufficient data — pass through raw
+    if (rt === "newsDriven" && raw.score === 0 && !raw.active) {
       results[rt] = raw;
       continue;
     }
@@ -586,8 +735,8 @@ export function detectAllRegimes(
     let severity = severityFromPercentile(pctile);
     let active = severity !== "off";
 
-    // Trend drawdown: respect activation gate (death cross + drawdown)
-    if (rt === "trendDrawdown" && raw.signals._gateActive !== 1) {
+    // Respect activation gate for all regimes that have one.
+    if (raw.signals._gateActive !== undefined && raw.signals._gateActive !== 1) {
       active = false;
       severity = "off";
     }

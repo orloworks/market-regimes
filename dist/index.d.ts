@@ -1,5 +1,5 @@
-import { a as BenchmarkData, R as RegimeType, b as RegimeResult, S as Severity, B as BenchmarkDataWithDates } from './types-CQUVxWi5.js';
-export { C as CONFIRMATION_RULES, c as REGIME_DETECTOR_VERSION, d as REGIME_TYPES } from './types-CQUVxWi5.js';
+import { a as BenchmarkData, R as RegimeType, b as RegimeResult, S as Severity, B as BenchmarkDataWithDates } from './types-DP7qz9Ic.js';
+export { C as CONFIRMATION_RULES, c as REGIME_DETECTOR_VERSION, d as REGIME_TYPES } from './types-DP7qz9Ic.js';
 
 /**
  * Regime detectors — pure functions, zero framework dependencies.
@@ -28,7 +28,21 @@ declare function detectTrendDrawdown(data: BenchmarkData): RegimeResult;
 declare function detectChoppy(data: BenchmarkData): RegimeResult;
 declare function detectInflationary(data: BenchmarkData): RegimeResult;
 declare function detectQE(data: BenchmarkData): RegimeResult;
-declare function detectNewsDriven(_data: BenchmarkData): RegimeResult;
+/**
+ * Detects news-driven regimes via large gap frequency, return outliers,
+ * and excess kurtosis.
+ *
+ * News-driven markets are characterized by:
+ * 1. Frequent large overnight gaps (>1.5% — well above median ~0.9%)
+ * 2. Return outlier clustering (many days with |return| > 1.5%)
+ * 3. Fat-tailed return distribution (excess kurtosis)
+ *
+ * Note: gap threshold must be high (≥1.5%) because Yahoo Finance's
+ * adjusted close vs raw open creates baseline gaps of ~0.5-1% on most days.
+ *
+ * References: Barclay & Hendershott (2003), French & Roll (1986), Cont (2001)
+ */
+declare function detectNewsDriven(data: BenchmarkData): RegimeResult;
 /**
  * Run all detectors and return raw composite scores (no percentile ranking).
  * Used by classifyRegimeSeries which applies its own per-series percentile.

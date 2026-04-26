@@ -1,4 +1,4 @@
-import { B as BenchmarkDataWithDates } from './types-CQUVxWi5.mjs';
+import { B as BenchmarkDataWithDates } from './types-DP7qz9Ic.mjs';
 
 /**
  * Fetch benchmark data from Yahoo Finance.

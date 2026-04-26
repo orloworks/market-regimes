@@ -49,7 +49,7 @@ interface BenchmarkDataWithDates extends BenchmarkData {
 }
 declare const REGIME_TYPES: RegimeType[];
 /** Current detector logic version — bump when detector logic changes */
-declare const REGIME_DETECTOR_VERSION = 5;
+declare const REGIME_DETECTOR_VERSION = 6;
 declare const CONFIRMATION_RULES: Record<RegimeType, {
     activateDays: number;
     deactivateDays: number;

@@ -118,8 +118,8 @@ export function classifyRegimeSeries(
     for (const rt of REGIME_TYPES) {
       const raw = rawByDay[i]![rt];
 
-      // News-driven stub: pass through
-      if (rt === "newsDriven") {
+      // News-driven with insufficient data: pass through raw
+      if (rt === "newsDriven" && raw.score === 0 && !raw.active) {
         dayResults[rt] = raw;
         continue;
       }
@@ -139,8 +139,10 @@ export function classifyRegimeSeries(
       // Determine proposed severity from percentile
       let proposedSeverity = severityFromPercentile(pctile);
 
-      // Trend drawdown: respect activation gate
-      if (rt === "trendDrawdown" && raw.signals._gateActive !== 1) {
+      // Respect activation gate for all regimes that have one.
+      // Gate ensures raw signals are genuinely distinctive before
+      // percentile-based severity is applied.
+      if (raw.signals._gateActive !== undefined && raw.signals._gateActive !== 1) {
         proposedSeverity = "off";
       }
 

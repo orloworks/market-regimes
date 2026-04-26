@@ -51,14 +51,14 @@ module.exports = __toCommonJS(index_exports);
 
 // src/types.ts
 var REGIME_TYPES = ["volatile", "trendDrawdown", "choppy", "inflationary", "qe", "crisis", "newsDriven"];
-var REGIME_DETECTOR_VERSION = 5;
+var REGIME_DETECTOR_VERSION = 6;
 var CONFIRMATION_RULES = {
   volatile: { activateDays: 2, deactivateDays: 7 },
   trendDrawdown: { activateDays: 3, deactivateDays: 10 },
   choppy: { activateDays: 3, deactivateDays: 5 },
   inflationary: { activateDays: 5, deactivateDays: 10 },
-  qe: { activateDays: 5, deactivateDays: 10 },
-  crisis: { activateDays: 1, deactivateDays: 10 },
+  qe: { activateDays: 7, deactivateDays: 10 },
+  crisis: { activateDays: 1, deactivateDays: 3 },
   newsDriven: { activateDays: 3, deactivateDays: 5 }
 };
 
@@ -236,8 +236,12 @@ function detectCrisis(data) {
   if (spyDrawdown < -0.15 && spyTltCorr21 > 0.3) {
     signals._crisisOverride = 1;
   }
+  const hasDrawdown = spyDrawdown < -0.15;
+  const hasConcentratedSelling = tailScore >= 0.75;
+  const gateActive = hasDrawdown && hasConcentratedSelling;
+  signals._gateActive = gateActive ? 1 : 0;
   return {
-    active: crisisScore > 0,
+    active: gateActive,
     severity: "off",
     // placeholder — percentile assigns real severity
     score: crisisScore,
@@ -257,8 +261,10 @@ function detectVolatile(data) {
   const volPercentile = percentileRank(vol21, volHistory);
   const signals = { vol21, volPercentile };
   if (isNaN(vol21) || isNaN(volPercentile)) return OFF;
+  const gateActive = vol21 >= 0.2;
+  signals._gateActive = gateActive ? 1 : 0;
   return {
-    active: volPercentile > 0,
+    active: gateActive,
     severity: "off",
     score: volPercentile,
     signals
@@ -267,14 +273,15 @@ function detectVolatile(data) {
 function detectTrendDrawdown(data) {
   const OFF = { active: false, severity: "off", score: 0, signals: {} };
   const spyPrices = data.spy.prices;
-  if (spyPrices.length < 200) return OFF;
+  if (spyPrices.length < 50) return OFF;
   const sma50 = SMA(spyPrices, 50);
-  const sma200 = SMA(spyPrices, 200);
+  const sma200 = spyPrices.length >= 200 ? SMA(spyPrices, 200) : [];
   const lastSma50 = sma50[sma50.length - 1];
-  const lastSma200 = sma200[sma200.length - 1];
-  if (isNaN(lastSma50) || isNaN(lastSma200) || lastSma200 === 0) return OFF;
-  const maCrossover = lastSma50 / lastSma200;
-  const crossScore = clamp((1 - maCrossover) / 0.05, 0, 1);
+  const lastSma200 = sma200.length > 0 ? sma200[sma200.length - 1] : NaN;
+  if (isNaN(lastSma50)) return OFF;
+  const hasSma200 = !isNaN(lastSma200) && lastSma200 > 0;
+  const maCrossover = hasSma200 ? lastSma50 / lastSma200 : 1;
+  const crossScore = hasSma200 ? clamp((1 - maCrossover) / 0.05, 0, 1) : 0;
   const lookback = Math.min(spyPrices.length, 252);
   const recentPrices = spyPrices.slice(-lookback);
   const peak252 = Math.max(...recentPrices);
@@ -287,8 +294,8 @@ function detectTrendDrawdown(data) {
   }
   const drawdownDuration = recentPrices.length - 1 - peakIndex;
   const durationScore = clamp(drawdownDuration / 63, 0, 1);
-  const belowBoth = current < lastSma50 && current < lastSma200 ? 1 : 0;
-  const trendScore = crossScore * 0.3 + ddScore * 0.35 + durationScore * 0.15 + belowBoth * 0.2;
+  const belowBoth = current < lastSma50 && (!hasSma200 || current < lastSma200) ? 1 : 0;
+  const trendScore = crossScore * 0.2 + ddScore * 0.4 + durationScore * 0.15 + belowBoth * 0.25;
   const signals = {
     maCrossover,
     crossScore,
@@ -300,7 +307,7 @@ function detectTrendDrawdown(data) {
     trendScore
   };
   if (Object.values(signals).some((v) => isNaN(v))) return OFF;
-  const gateActive = maCrossover < 1 && drawdownDepth >= 0.05;
+  const gateActive = drawdownDepth >= 0.1;
   signals._gateActive = gateActive ? 1 : 0;
   return {
     active: gateActive,
@@ -358,8 +365,10 @@ function detectChoppy(data) {
     chopScore
   };
   if (Object.values(signals).some((v) => isNaN(v))) return OFF;
+  const gateActive = vrMin < 0.85 && crossCount >= 2;
+  signals._gateActive = gateActive ? 1 : 0;
   return {
-    active: chopScore > 0,
+    active: gateActive,
     severity: "off",
     score: chopScore,
     signals
@@ -409,8 +418,13 @@ function detectInflationary(data) {
     inflationScore
   };
   if (Object.values(signals).some((v) => isNaN(v))) return OFF;
+  const breakevensRising = tipTltRatio63 > 0.02;
+  const bondsWeak = tltReturn63 < -0.02;
+  const realAssetConfirmation = dbcReturn63 > 0.03 || gldReturn63 > 0.04;
+  const gateActive = breakevensRising && bondsWeak && realAssetConfirmation;
+  signals._gateActive = gateActive ? 1 : 0;
   return {
-    active: inflationScore > 0,
+    active: gateActive,
     severity: "off",
     score: inflationScore,
     signals
@@ -469,15 +483,89 @@ function detectQE(data) {
     qeScore
   };
   if (isNaN(qeScore)) return OFF;
+  const hasStrongMomentum = spyReturn63 > 0.05;
+  const hasEasyConditions = meltUpScore > 0.15 || decorrelation > 0.3;
+  const gateActive = hasStrongMomentum && spyAboveSma && hasEasyConditions;
+  signals._gateActive = gateActive ? 1 : 0;
   return {
-    active: qeScore > 0,
+    active: gateActive,
     severity: "off",
     score: qeScore,
     signals
   };
 }
-function detectNewsDriven(_data) {
-  return { active: false, severity: "off", score: 0, signals: {} };
+function detectNewsDriven(data) {
+  const OFF = { active: false, severity: "off", score: 0, signals: {} };
+  const spyPrices = data.spy.prices;
+  const spyOpens = data.spy.opens;
+  const spyReturns = data.spy.returns;
+  const qqqPrices = data.qqq.prices;
+  const qqqOpens = data.qqq.opens;
+  const qqqReturns = data.qqq.returns;
+  if (spyPrices.length < 42 || spyOpens.length < 42) return OFF;
+  if (spyReturns.length < 42) return OFF;
+  const LARGE_GAP = 0.015;
+  const lookback = 21;
+  const start = spyPrices.length - lookback;
+  let spyLargeGaps = 0;
+  let qqqLargeGaps = 0;
+  let maxGap = 0;
+  for (let i = start; i < spyPrices.length; i++) {
+    if (i < 1) continue;
+    const spyGap = Math.abs(spyOpens[i] - spyPrices[i - 1]) / spyPrices[i - 1];
+    if (!isNaN(spyGap)) {
+      if (spyGap > LARGE_GAP) spyLargeGaps++;
+      if (spyGap > maxGap) maxGap = spyGap;
+    }
+    if (qqqPrices.length > i && qqqOpens.length > i) {
+      const qqqGap = Math.abs(qqqOpens[i] - qqqPrices[i - 1]) / qqqPrices[i - 1];
+      if (!isNaN(qqqGap)) {
+        if (qqqGap > LARGE_GAP) qqqLargeGaps++;
+        if (qqqGap > maxGap) maxGap = qqqGap;
+      }
+    }
+  }
+  const avgLargeGaps = (spyLargeGaps + qqqLargeGaps) / 2;
+  const gapFreqScore = clamp(avgLargeGaps / 6, 0, 1);
+  const recentSpyReturns = spyReturns.slice(-lookback);
+  const recentQqqReturns = qqqReturns.slice(-lookback);
+  const spyOutliers = recentSpyReturns.filter((r) => Math.abs(r) > 0.015).length;
+  const qqqOutliers = recentQqqReturns.filter((r) => Math.abs(r) > 0.015).length;
+  const avgOutliers = (spyOutliers + qqqOutliers) / 2;
+  const outlierScore = clamp(avgOutliers / 7, 0, 1);
+  const recent42 = spyReturns.slice(-42);
+  let kurt = 0;
+  if (recent42.length >= 20) {
+    try {
+      kurt = excessKurtosis(recent42);
+    } catch {
+    }
+  }
+  const kurtScore = clamp(kurt / 5, 0, 1);
+  const newsScore = gapFreqScore * 0.35 + outlierScore * 0.4 + kurtScore * 0.25;
+  const signals = {
+    spyLargeGaps,
+    qqqLargeGaps,
+    avgLargeGaps,
+    gapFreqScore,
+    maxGap,
+    spyOutliers,
+    qqqOutliers,
+    avgOutliers,
+    outlierScore,
+    kurtosis: kurt,
+    kurtScore,
+    newsScore
+  };
+  if (Object.values(signals).some((v) => isNaN(v))) return OFF;
+  const gateActive = avgOutliers >= 7 && avgLargeGaps >= 5;
+  signals._gateActive = gateActive ? 1 : 0;
+  return {
+    active: gateActive,
+    severity: "off",
+    score: newsScore,
+    signals
+  };
 }
 var DETECTORS = {
   volatile: detectVolatile,
@@ -515,14 +603,14 @@ function detectAllRegimes(data) {
   for (const rt of REGIME_TYPES) {
     const raw = currentResults[rt];
     const history = historyByType[rt];
-    if (rt === "newsDriven") {
+    if (rt === "newsDriven" && raw.score === 0 && !raw.active) {
       results[rt] = raw;
       continue;
     }
     const pctile = history.length > 10 ? percentileRank(raw.score, history) : raw.score;
     let severity = severityFromPercentile(pctile);
     let active = severity !== "off";
-    if (rt === "trendDrawdown" && raw.signals._gateActive !== 1) {
+    if (raw.signals._gateActive !== void 0 && raw.signals._gateActive !== 1) {
       active = false;
       severity = "off";
     }
@@ -609,7 +697,7 @@ function classifyRegimeSeries(input) {
     const dayResults = {};
     for (const rt of REGIME_TYPES) {
       const raw = rawByDay[i][rt];
-      if (rt === "newsDriven") {
+      if (rt === "newsDriven" && raw.score === 0 && !raw.active) {
         dayResults[rt] = raw;
         continue;
       }
@@ -620,7 +708,7 @@ function classifyRegimeSeries(input) {
       }
       const pctile = history.length > 10 ? percentileRank(raw.score, history) : raw.score;
       let proposedSeverity = severityFromPercentile(pctile);
-      if (rt === "trendDrawdown" && raw.signals._gateActive !== 1) {
+      if (raw.signals._gateActive !== void 0 && raw.signals._gateActive !== 1) {
         proposedSeverity = "off";
       }
       if (rt === "crisis" && raw.signals._crisisOverride === 1) {

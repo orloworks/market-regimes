@@ -13,6 +13,8 @@ export {
   detectNewsDriven,
   detectAllRegimes,
   detectAllRegimesRaw,
+  severityFromPercentile,
+  PERCENTILE_HISTORY_DAYS,
 } from "./detectors";
 
 // Classification

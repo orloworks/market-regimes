@@ -32,12 +32,12 @@ import {
 // ─── Percentile-based severity ─────────────────────────────────────────
 
 /** Number of trailing trading days used to build the percentile distribution */
-const PERCENTILE_HISTORY_DAYS = 504;
+export const PERCENTILE_HISTORY_DAYS = 504;
 
 /** Uniform severity thresholds applied to all detectors */
 const SEVERITY_PCTILE = { mild: 0.60, moderate: 0.75, severe: 0.90 } as const;
 
-function severityFromPercentile(pctile: number): Severity {
+export function severityFromPercentile(pctile: number): Severity {
   if (pctile >= SEVERITY_PCTILE.severe) return "severe";
   if (pctile >= SEVERITY_PCTILE.moderate) return "moderate";
   if (pctile >= SEVERITY_PCTILE.mild) return "mild";
